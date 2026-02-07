@@ -45,13 +45,13 @@ export async function analyzeResume(
   }
 ): Promise<ResumeAnalysis> {
   // Use Gemini as primary (handles long resumes better)
-  console.log(`📄 Resume length: ${resumeText.length} characters`);
+  console.log(`Resume length: ${resumeText.length} characters`);
   
   try {
     // Try Gemini first (better for long documents)
     return await analyzeResumeWithGemini(resumeText, jobRequirements);
   } catch (geminiError) {
-    console.warn('⚠️ Gemini failed, trying Groq as fallback...', geminiError);
+    console.warn('Gemini failed, trying Groq as fallback...', geminiError);
     
     // Fallback to Groq for shorter resumes
     return await analyzeResumeWithGroq(resumeText, jobRequirements);
@@ -76,7 +76,7 @@ async function analyzeResumeWithGroq(
     ? resumeText.substring(0, maxResumeLength) + '\n[Truncated]'
     : resumeText;
 
-  console.log(`🟢 Using Groq: ${truncatedResume.length} characters (original: ${resumeText.length})`);
+  console.log(`Using Groq: ${truncatedResume.length} characters (original: ${resumeText.length})`);
 
   // Very concise prompt to save tokens
   const prompt = `Job: ${jobRequirements.title}

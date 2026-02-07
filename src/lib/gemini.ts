@@ -1,3 +1,4 @@
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { ResumeAnalysis } from './groq';
 
 const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
@@ -6,7 +7,51 @@ if (!apiKey) {
   throw new Error('Missing Google API key');
 }
 
-console.log('🔧 Gemini initialized with v1 API');
+const genAI = new GoogleGenerativeAI(apiKey);
+
+// Strict schema for structured data extraction
+const schema = {
+  description: "Resume analysis result",
+  type: SchemaType.OBJECT,
+  properties: {
+    parsed_data: {
+      type: SchemaType.OBJECT,
+      properties: {
+        name: { type: SchemaType.STRING },
+        email: { type: SchemaType.STRING },
+        phone: { type: SchemaType.STRING },
+        skills: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        experience_years: { type: SchemaType.NUMBER },
+        education: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        roles: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        projects: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        summary: { type: SchemaType.STRING },
+      },
+      required: ["name", "email", "skills", "experience_years"],
+    },
+    match_score: { type: SchemaType.NUMBER },
+    skill_match_score: { type: SchemaType.NUMBER },
+    experience_match_score: { type: SchemaType.NUMBER },
+    explanation: { type: SchemaType.STRING },
+    strengths: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    gaps: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    recommendation: { type: SchemaType.STRING },
+  },
+  required: ["parsed_data", "match_score", "recommendation"],
+};
+
+/**
+ * Debug function to check which models are available for your API Key
+ */
+async function logAvailableModels() {
+  try {
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const data = await resp.json();
+    console.log("API Key Model Permissions:", data.models?.map((m: any) => m.name));
+  } catch (e) {
+    console.error("Could not list models", e);
+  }
+}
 
 export async function analyzeResumeWithGemini(
   resumeText: string,
@@ -19,147 +64,85 @@ export async function analyzeResumeWithGemini(
     experience_max: number;
   }
 ): Promise<ResumeAnalysis> {
-  console.log(`🔷 Using Gemini for analysis: ${resumeText.length} characters`);
+  await logAvailableModels();
 
-  const prompt = `You are an expert HR analyst. Analyze this resume against the job requirements.
+  // List of models to try in order of preference
+  const modelNames = ["gemini-1.5-pro-latest", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-1.5-flash"];
+  let lastError: any = null;
 
-JOB: ${jobRequirements.title}
-REQUIRED SKILLS: ${jobRequirements.required_skills.join(', ')}
-OPTIONAL SKILLS: ${jobRequirements.optional_skills.join(', ')}
-EXPERIENCE NEEDED: ${jobRequirements.experience_min}-${jobRequirements.experience_max} years
+  for (const modelName of modelNames) {
+    try {
+      console.log(`Attempting analysis with: ${modelName}`);
 
-RESUME:
-${resumeText}
-
-Analyze the candidate and return ONLY a JSON object with this exact structure:
-{
-  "parsed_data": {
-    "name": "Full Name from resume",
-    "email": "email@example.com",
-    "phone": "phone number or empty string",
-    "skills": ["skill1", "skill2", "skill3"],
-    "experience_years": 5,
-    "education": ["Degree - University"],
-    "roles": ["Job Title at Company"],
-    "projects": ["Notable project"],
-    "summary": "Brief professional summary"
-  },
-  "match_score": 85,
-  "skill_match_score": 90,
-  "experience_match_score": 80,
-  "explanation": "Detailed explanation of why this candidate matches or doesn't match",
-  "strengths": ["Key strength 1", "Key strength 2"],
-  "gaps": ["Missing skill or gap"],
-  "recommendation": "Shortlist"
-}
-
-SCORING RULES:
-- match_score: Overall fit (0-100)
-- skill_match_score: How well skills match (0-100)
-- experience_match_score: How well experience matches (0-100)
-- recommendation: "Shortlist" (80+), "Review" (50-79), or "Reject" (<50)
-
-Return ONLY the JSON object, no other text.`;
-
-  try {
-    // Make direct API call to v1 endpoint (not v1beta which the SDK uses)
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${apiKey}`;
-    
-    console.log(`✅ Calling Gemini Pro via v1 API`);
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
+      const model = genAI.getGenerativeModel({
+        model: modelName,
         generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 4000,
+          responseMimeType: "application/json",
+          responseSchema: modelName.includes("1.5") ? schema : undefined, // Schema only for 1.5+
+          temperature: 0.1,
         },
-      }),
-    });
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Gemini API error:', response.status, errorText);
-      throw new Error(`Gemini API error: ${response.status}`);
+      const prompt = `Analyze this resume against the job requirements.
+      
+      JOB: ${jobRequirements.title}
+      REQUIRED SKILLS: ${jobRequirements.required_skills.join(', ')}
+      EXPERIENCE NEEDED: ${jobRequirements.experience_min}-${jobRequirements.experience_max} years
+
+      RESUME:
+      ${resumeText}
+
+      Return a JSON object matching this structure:
+      {
+        "parsed_data": { "name": "", "email": "", "phone": "", "skills": [], "experience_years": 0, "education": [], "roles": [], "projects": [], "summary": "" },
+        "match_score": 0-100,
+        "skill_match_score": 0-100,
+        "experience_match_score": 0-100,
+        "explanation": "",
+        "strengths": [],
+        "gaps": [],
+        "recommendation": "Shortlist" | "Review" | "Reject"
+      }`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      // Handle potential markdown wrapping in older models
+      const cleanJson = text.replace(/```json|```/gi, "").trim();
+      const analysis: ResumeAnalysis = JSON.parse(cleanJson);
+
+      console.log(`Success using ${modelName}`);
+      return analysis;
+
+    } catch (error: any) {
+      console.warn(`${modelName} failed:`, error.message);
+      lastError = error;
+      // If it's a 404, the loop continues to the next model
+      if (!error.message.includes("404")) break; 
     }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) {
-      throw new Error('No response text from Gemini');
-    }
-
-    console.log('✅ Gemini response received:', text.substring(0, 200) + '...');
-
-    // Try to extract JSON from response
-    let jsonStr = text.trim();
-    
-    // Remove markdown code blocks if present
-    jsonStr = jsonStr.replace(/```json\s*/g, '').replace(/```\s*/g, '');
-    
-    // Find JSON object
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error('No JSON found in response:', text);
-      throw new Error('No JSON found in Gemini response');
-    }
-
-    // Parse the JSON response
-    const analysis: ResumeAnalysis = JSON.parse(jsonMatch[0]);
-
-    // Validate required fields
-    if (!analysis.parsed_data || typeof analysis.match_score !== 'number') {
-      throw new Error('Invalid response structure from Gemini');
-    }
-
-    // Ensure recommendation is valid
-    if (!['Shortlist', 'Review', 'Reject'].includes(analysis.recommendation)) {
-      analysis.recommendation = 'Review';
-    }
-
-    console.log('✅ Analysis complete:', {
-      name: analysis.parsed_data.name,
-      score: analysis.match_score,
-      recommendation: analysis.recommendation,
-    });
-
-    return analysis;
-  } catch (error) {
-    console.error('❌ Gemini analysis error:', error);
-
-    // Return a fallback response
-    return {
-      parsed_data: {
-        name: 'Candidate (Analysis Failed)',
-        email: 'see-resume@example.com',
-        phone: '',
-        skills: ['See resume for details'],
-        experience_years: 0,
-        education: ['See resume'],
-        roles: ['See resume'],
-        projects: [],
-        summary: 'Automatic analysis failed. Please review manually.',
-      },
-      match_score: 50,
-      skill_match_score: 50,
-      experience_match_score: 50,
-      explanation: 'Unable to complete automatic analysis. Manual review recommended.',
-      strengths: ['Manual review required'],
-      gaps: ['Automatic analysis unavailable'],
-      recommendation: 'Review',
-    };
   }
+
+  // Final fallback if all models fail
+  console.error('All Gemini models failed:', lastError);
+  return {
+    parsed_data: {
+      name: 'Analysis Failed',
+      email: '',
+      phone: '',
+      skills: [],
+      experience_years: 0,
+      education: [],
+      roles: [],
+      projects: [],
+      summary: 'Connection error with Gemini API.',
+    },
+    match_score: 0,
+    skill_match_score: 0,
+    experience_match_score: 0,
+    explanation: `API Error: ${lastError?.message || 'Unknown'}`,
+    strengths: [],
+    gaps: ['Check API Key permissions or regional availability.'],
+    recommendation: 'Review',
+  };
 }
