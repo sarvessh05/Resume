@@ -9,18 +9,8 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
-// List available models for debugging
-async function listAvailableModels() {
-  try {
-    const models = await genAI.listModels();
-    console.log('📋 Available Gemini models:', models.map(m => m.name));
-  } catch (error) {
-    console.warn('Could not list models:', error);
-  }
-}
-
-// Call once to see available models
-listAvailableModels();
+// Note: Using v1 API (not v1beta) for newer API keys
+console.log('🔧 Gemini SDK initialized with API key');
 
 export async function analyzeResumeWithGemini(
   resumeText: string,
@@ -93,10 +83,14 @@ Return ONLY the JSON object, no other text.`;
     const response = result.response;
     const text = response.text();
 
-    console.log('✅ Gemini response received:', text.substring(0, 200) + '...');
+    if (!result) {
+      throw new Error('No response from Gemini');
+    }
+
+    console.log('✅ Gemini response received:', result.substring(0, 200) + '...');
 
     // Parse the JSON response
-    const analysis: ResumeAnalysis = JSON.parse(text);
+    const analysis: ResumeAnalysis = JSON.parse(result);
 
     // Validate required fields
     if (!analysis.parsed_data || typeof analysis.match_score !== 'number') {
