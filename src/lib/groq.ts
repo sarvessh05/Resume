@@ -1,4 +1,5 @@
 import Groq from 'groq-sdk';
+import { analyzeResumeWithGemini } from './gemini';
 
 const apiKey = import.meta.env.VITE_GROQ_API_KEY;
 
@@ -43,13 +44,39 @@ export async function analyzeResume(
     experience_max: number;
   }
 ): Promise<ResumeAnalysis> {
+  // Use Gemini as primary (handles long resumes better)
+  console.log(`📄 Resume length: ${resumeText.length} characters`);
+  
+  try {
+    // Try Gemini first (better for long documents)
+    return await analyzeResumeWithGemini(resumeText, jobRequirements);
+  } catch (geminiError) {
+    console.warn('⚠️ Gemini failed, trying Groq as fallback...', geminiError);
+    
+    // Fallback to Groq for shorter resumes
+    return await analyzeResumeWithGroq(resumeText, jobRequirements);
+  }
+}
+
+// Groq implementation (now as fallback)
+async function analyzeResumeWithGroq(
+  resumeText: string,
+  jobRequirements: {
+    title: string;
+    description: string;
+    required_skills: string[];
+    optional_skills: string[];
+    experience_min: number;
+    experience_max: number;
+  }
+): Promise<ResumeAnalysis> {
   // Truncate resume text if too long (keep first 4000 chars for context)
-  const maxResumeLength = 4000; // Reduced from 8000 to leave more room for output
+  const maxResumeLength = 4000;
   const truncatedResume = resumeText.length > maxResumeLength 
     ? resumeText.substring(0, maxResumeLength) + '\n[Truncated]'
     : resumeText;
 
-  console.log(`Analyzing resume: ${truncatedResume.length} characters (original: ${resumeText.length})`);
+  console.log(`🟢 Using Groq: ${truncatedResume.length} characters (original: ${resumeText.length})`);
 
   // Very concise prompt to save tokens
   const prompt = `Job: ${jobRequirements.title}
