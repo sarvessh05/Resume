@@ -113,54 +113,59 @@ Return JSON:
   } catch (error) {
     console.error('Error analyzing resume:', error);
     
-    // If token limit error, try with even shorter resume
+    // If token limit error, try with faster model and shorter resume
     if (error instanceof Error && error.message.includes('max completion tokens')) {
-      console.warn('Token limit reached, trying with shorter resume...');
+      console.warn('Token limit reached, trying with faster model...');
       
       try {
-        // Try again with much shorter resume
-        const veryShortResume = resumeText.substring(0, 2000);
-        const shortPrompt = `Job: ${jobRequirements.title}
-Skills: ${jobRequirements.required_skills.slice(0, 3).join(', ')}
+        // Try again with much shorter resume and faster model
+        const veryShortResume = resumeText.substring(0, 1500);
+        const shortPrompt = `Analyze resume for: ${jobRequirements.title}
 
-Resume (excerpt):
+Resume:
 ${veryShortResume}
 
-Return JSON with: name, email, skills array, experience_years, match_score (0-100), recommendation ("Shortlist"/"Review"/"Reject")`;
+Return JSON: {"name":"","email":"","skills":[],"experience_years":0,"match_score":50,"recommendation":"Review"}`;
 
         const retryCompletion = await groq.chat.completions.create({
           messages: [
-            { role: 'system', content: 'Return JSON only.' },
             { role: 'user', content: shortPrompt },
           ],
-          model: 'llama-3.3-70b-versatile',
+          model: 'llama-3.1-8b-instant', // Faster, smaller model
           temperature: 0.1,
-          max_tokens: 2000,
-          response_format: { type: 'json_object' },
+          max_tokens: 1000,
         });
 
-        const retryContent = retryCompletion.choices[0]?.message?.content || '';
-        const retryJson = JSON.parse(retryContent);
+        const retryContent = retryCompletion.choices[0]?.message?.content || '{}';
         
-        // Map to our structure
+        // Try to parse JSON from response
+        let retryJson;
+        try {
+          const jsonMatch = retryContent.match(/\{[\s\S]*\}/);
+          retryJson = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+        } catch {
+          retryJson = {};
+        }
+        
+        // Map to our structure with defaults
         return {
           parsed_data: {
-            name: retryJson.name || 'Unknown',
-            email: retryJson.email || 'not-found@example.com',
-            phone: retryJson.phone || '',
-            skills: retryJson.skills || [],
+            name: retryJson.name || 'Candidate (Auto-analyzed)',
+            email: retryJson.email || 'see-resume@example.com',
+            phone: '',
+            skills: Array.isArray(retryJson.skills) ? retryJson.skills : ['See resume'],
             experience_years: retryJson.experience_years || 0,
-            education: retryJson.education || [],
-            roles: retryJson.roles || [],
-            projects: retryJson.projects || [],
-            summary: retryJson.summary || '',
+            education: ['See resume'],
+            roles: ['See resume'],
+            projects: [],
+            summary: 'Analyzed with reduced context',
           },
           match_score: retryJson.match_score || 50,
-          skill_match_score: retryJson.skill_match_score || 50,
-          experience_match_score: retryJson.experience_match_score || 50,
-          explanation: retryJson.explanation || 'Analyzed with reduced context due to length.',
-          strengths: retryJson.strengths || ['See resume for details'],
-          gaps: retryJson.gaps || ['Manual review recommended'],
+          skill_match_score: 50,
+          experience_match_score: 50,
+          explanation: 'Analyzed with reduced context due to resume length. Manual review recommended for detailed assessment.',
+          strengths: ['See full resume for details'],
+          gaps: ['Manual review recommended'],
           recommendation: retryJson.recommendation || 'Review',
         };
       } catch (retryError) {
@@ -170,27 +175,26 @@ Return JSON with: name, email, skills array, experience_years, match_score (0-10
     }
     
     // Return a fallback response instead of failing completely
-    if (error instanceof Error && (error.message.includes('parse') || error.message.includes('token'))) {
-      console.warn('Using fallback analysis due to error');
-      return {
-        parsed_data: {
-          name: 'Candidate (Review Required)',
-          email: 'review-required@example.com',
-          skills: ['Unable to parse - manual review needed'],
-          experience_years: 0,
-          education: ['See resume'],
-          roles: ['See resume'],
-        },
-        match_score: 50,
-        skill_match_score: 50,
-        experience_match_score: 50,
-        explanation: 'Unable to fully analyze resume automatically. Manual review recommended.',
-        strengths: ['Manual review required'],
-        gaps: ['Unable to analyze automatically'],
-        recommendation: 'Review',
-      };
-    }
-    
-    throw error;
+    console.warn('Using fallback analysis');
+    return {
+      parsed_data: {
+        name: 'Candidate (Review Required)',
+        email: 'review-required@example.com',
+        phone: '',
+        skills: ['Manual review needed'],
+        experience_years: 0,
+        education: ['See resume'],
+        roles: ['See resume'],
+        projects: [],
+        summary: '',
+      },
+      match_score: 50,
+      skill_match_score: 50,
+      experience_match_score: 50,
+      explanation: 'Resume uploaded successfully. Automatic analysis unavailable - manual review recommended.',
+      strengths: ['Manual review required'],
+      gaps: ['Automatic analysis unavailable'],
+      recommendation: 'Review',
+    };
   }
 }
