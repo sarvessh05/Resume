@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { ResumeAnalysis } from './groq';
 
 const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
@@ -7,10 +6,7 @@ if (!apiKey) {
   throw new Error('Missing Google API key');
 }
 
-const genAI = new GoogleGenerativeAI(apiKey);
-
-// Note: Using v1 API (not v1beta) for newer API keys
-console.log('🔧 Gemini SDK initialized with API key');
+console.log('🔧 Gemini initialized with v1 API');
 
 export async function analyzeResumeWithGemini(
   resumeText: string,
@@ -66,31 +62,63 @@ SCORING RULES:
 Return ONLY the JSON object, no other text.`;
 
   try {
-    // Use gemini-pro which is stable and available in v1 API
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-pro', // Stable model, definitely available
-    });
+    // Make direct API call to v1 endpoint (not v1beta which the SDK uses)
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${apiKey}`;
     
-    console.log(`✅ Using model: gemini-pro`);
+    console.log(`✅ Calling Gemini Pro via v1 API`);
 
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 4000,
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 4000,
+        },
+      }),
     });
-    const response = result.response;
-    const text = response.text();
 
-    if (!result) {
-      throw new Error('No response from Gemini');
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Gemini API error:', response.status, errorText);
+      throw new Error(`Gemini API error: ${response.status}`);
     }
 
-    console.log('✅ Gemini response received:', result.substring(0, 200) + '...');
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text) {
+      throw new Error('No response text from Gemini');
+    }
+
+    console.log('✅ Gemini response received:', text.substring(0, 200) + '...');
+
+    // Try to extract JSON from response
+    let jsonStr = text.trim();
+    
+    // Remove markdown code blocks if present
+    jsonStr = jsonStr.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    
+    // Find JSON object
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('No JSON found in response:', text);
+      throw new Error('No JSON found in Gemini response');
+    }
 
     // Parse the JSON response
-    const analysis: ResumeAnalysis = JSON.parse(result);
+    const analysis: ResumeAnalysis = JSON.parse(jsonMatch[0]);
 
     // Validate required fields
     if (!analysis.parsed_data || typeof analysis.match_score !== 'number') {
