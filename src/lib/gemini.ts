@@ -9,6 +9,19 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
+// List available models for debugging
+async function listAvailableModels() {
+  try {
+    const models = await genAI.listModels();
+    console.log('📋 Available Gemini models:', models.map(m => m.name));
+  } catch (error) {
+    console.warn('Could not list models:', error);
+  }
+}
+
+// Call once to see available models
+listAvailableModels();
+
 export async function analyzeResumeWithGemini(
   resumeText: string,
   jobRequirements: {
@@ -63,16 +76,43 @@ SCORING RULES:
 Return ONLY the JSON object, no other text.`;
 
   try {
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash-latest', // Use -latest suffix for v1 API
+    // Try different model names that work with the free tier
+    const modelNames = [
+      'gemini-1.5-flash',
+      'gemini-1.5-flash-001',
+      'gemini-pro',
+      'gemini-1.0-pro',
+    ];
+    
+    let model;
+    let modelUsed = '';
+    
+    // Try each model until one works
+    for (const modelName of modelNames) {
+      try {
+        model = genAI.getGenerativeModel({
+          model: modelName,
+        });
+        modelUsed = modelName;
+        console.log(`✅ Using model: ${modelName}`);
+        break;
+      } catch (e) {
+        console.log(`⚠️ Model ${modelName} not available, trying next...`);
+        continue;
+      }
+    }
+    
+    if (!model) {
+      throw new Error('No available Gemini model found');
+    }
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        responseMimeType: 'application/json',
         temperature: 0.2,
         maxOutputTokens: 4000,
       },
     });
-
-    const result = await model.generateContent(prompt);
     const response = result.response;
     const text = response.text();
 
