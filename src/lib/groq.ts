@@ -43,53 +43,31 @@ export async function analyzeResume(
     experience_max: number;
   }
 ): Promise<ResumeAnalysis> {
-  // Truncate resume text if too long (keep first 8000 chars for context)
-  const maxResumeLength = 8000;
+  // Truncate resume text if too long (keep first 4000 chars for context)
+  const maxResumeLength = 4000; // Reduced from 8000 to leave more room for output
   const truncatedResume = resumeText.length > maxResumeLength 
-    ? resumeText.substring(0, maxResumeLength) + '\n\n[Resume truncated for analysis...]'
+    ? resumeText.substring(0, maxResumeLength) + '\n[Truncated]'
     : resumeText;
 
   console.log(`Analyzing resume: ${truncatedResume.length} characters (original: ${resumeText.length})`);
 
-  const prompt = `Analyze this resume for the job: ${jobRequirements.title}
+  // Very concise prompt to save tokens
+  const prompt = `Job: ${jobRequirements.title}
+Required: ${jobRequirements.required_skills.slice(0, 5).join(', ')}
+Experience: ${jobRequirements.experience_min}-${jobRequirements.experience_max}y
 
-REQUIRED SKILLS: ${jobRequirements.required_skills.join(', ')}
-OPTIONAL SKILLS: ${jobRequirements.optional_skills.join(', ')}
-EXPERIENCE: ${jobRequirements.experience_min}-${jobRequirements.experience_max} years
-
-RESUME:
+Resume:
 ${truncatedResume}
 
-Return ONLY valid JSON with this exact structure:
-{
-  "parsed_data": {
-    "name": "Full Name",
-    "email": "email@example.com",
-    "phone": "phone or empty string",
-    "skills": ["skill1", "skill2"],
-    "experience_years": 5,
-    "education": ["degree1"],
-    "roles": ["Job Title at Company"],
-    "projects": ["project1"],
-    "summary": "Brief summary"
-  },
-  "match_score": 85,
-  "skill_match_score": 90,
-  "experience_match_score": 80,
-  "explanation": "Brief explanation of match",
-  "strengths": ["strength1", "strength2"],
-  "gaps": ["gap1"],
-  "recommendation": "Shortlist"
-}
-
-Use "Shortlist" (80+), "Review" (50-79), or "Reject" (<50) for recommendation.`;
+Return JSON:
+{"parsed_data":{"name":"","email":"","phone":"","skills":[],"experience_years":0,"education":[],"roles":[],"projects":[],"summary":""},"match_score":0,"skill_match_score":0,"experience_match_score":0,"explanation":"","strengths":[],"gaps":[],"recommendation":"Review"}`;
 
   try {
     const completion = await groq.chat.completions.create({
       messages: [
         {
           role: 'system',
-          content: 'You are an expert HR analyst. Respond with valid JSON only.',
+          content: 'You are an HR analyst. Return valid JSON only. Be concise.',
         },
         {
           role: 'user',
@@ -97,8 +75,8 @@ Use "Shortlist" (80+), "Review" (50-79), or "Reject" (<50) for recommendation.`;
         },
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.2,
-      max_tokens: 3000, // Increased from 2000
+      temperature: 0.1, // Lower temperature for more focused output
+      max_tokens: 4000, // Increased significantly
       response_format: { type: 'json_object' },
     });
 
@@ -135,22 +113,78 @@ Use "Shortlist" (80+), "Review" (50-79), or "Reject" (<50) for recommendation.`;
   } catch (error) {
     console.error('Error analyzing resume:', error);
     
+    // If token limit error, try with even shorter resume
+    if (error instanceof Error && error.message.includes('max completion tokens')) {
+      console.warn('Token limit reached, trying with shorter resume...');
+      
+      try {
+        // Try again with much shorter resume
+        const veryShortResume = resumeText.substring(0, 2000);
+        const shortPrompt = `Job: ${jobRequirements.title}
+Skills: ${jobRequirements.required_skills.slice(0, 3).join(', ')}
+
+Resume (excerpt):
+${veryShortResume}
+
+Return JSON with: name, email, skills array, experience_years, match_score (0-100), recommendation ("Shortlist"/"Review"/"Reject")`;
+
+        const retryCompletion = await groq.chat.completions.create({
+          messages: [
+            { role: 'system', content: 'Return JSON only.' },
+            { role: 'user', content: shortPrompt },
+          ],
+          model: 'llama-3.3-70b-versatile',
+          temperature: 0.1,
+          max_tokens: 2000,
+          response_format: { type: 'json_object' },
+        });
+
+        const retryContent = retryCompletion.choices[0]?.message?.content || '';
+        const retryJson = JSON.parse(retryContent);
+        
+        // Map to our structure
+        return {
+          parsed_data: {
+            name: retryJson.name || 'Unknown',
+            email: retryJson.email || 'not-found@example.com',
+            phone: retryJson.phone || '',
+            skills: retryJson.skills || [],
+            experience_years: retryJson.experience_years || 0,
+            education: retryJson.education || [],
+            roles: retryJson.roles || [],
+            projects: retryJson.projects || [],
+            summary: retryJson.summary || '',
+          },
+          match_score: retryJson.match_score || 50,
+          skill_match_score: retryJson.skill_match_score || 50,
+          experience_match_score: retryJson.experience_match_score || 50,
+          explanation: retryJson.explanation || 'Analyzed with reduced context due to length.',
+          strengths: retryJson.strengths || ['See resume for details'],
+          gaps: retryJson.gaps || ['Manual review recommended'],
+          recommendation: retryJson.recommendation || 'Review',
+        };
+      } catch (retryError) {
+        console.error('Retry also failed:', retryError);
+        // Fall through to fallback below
+      }
+    }
+    
     // Return a fallback response instead of failing completely
-    if (error instanceof Error && error.message.includes('parse')) {
-      console.warn('Using fallback analysis due to parse error');
+    if (error instanceof Error && (error.message.includes('parse') || error.message.includes('token'))) {
+      console.warn('Using fallback analysis due to error');
       return {
         parsed_data: {
-          name: 'Unknown Candidate',
-          email: 'not-found@example.com',
-          skills: ['Unable to parse'],
+          name: 'Candidate (Review Required)',
+          email: 'review-required@example.com',
+          skills: ['Unable to parse - manual review needed'],
           experience_years: 0,
-          education: ['Unable to parse'],
-          roles: ['Unable to parse'],
+          education: ['See resume'],
+          roles: ['See resume'],
         },
         match_score: 50,
         skill_match_score: 50,
         experience_match_score: 50,
-        explanation: 'Unable to fully analyze resume due to parsing error. Please review manually.',
+        explanation: 'Unable to fully analyze resume automatically. Manual review recommended.',
         strengths: ['Manual review required'],
         gaps: ['Unable to analyze automatically'],
         recommendation: 'Review',
