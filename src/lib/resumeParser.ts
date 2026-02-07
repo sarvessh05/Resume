@@ -54,12 +54,25 @@ async function extractTextFromPDF(file: File): Promise<string> {
       .filter(word => word.length > 2 && /[a-zA-Z]/.test(word))
       .join(' ');
     
-    const result = textContent.length > 50 
+    let result = textContent.length > 50 
       ? textContent.join(' ') 
       : readableText;
     
+    // Clean up the result
+    result = result
+      .replace(/\s+/g, ' ')
+      .replace(/\n+/g, '\n')
+      .trim();
+    
     if (result.length < 100) {
       throw new Error('Insufficient text extracted from PDF');
+    }
+    
+    console.log(`PDF extraction successful: ${result.length} characters`);
+    
+    // Limit to reasonable size (first 15000 chars should be enough for a resume)
+    if (result.length > 15000) {
+      result = result.substring(0, 15000) + '\n\n[Content truncated...]';
     }
     
     return result;

@@ -43,48 +43,53 @@ export async function analyzeResume(
     experience_max: number;
   }
 ): Promise<ResumeAnalysis> {
-  const prompt = `You are an expert HR analyst. Analyze the following resume against the job requirements and provide a detailed assessment.
+  // Truncate resume text if too long (keep first 8000 chars for context)
+  const maxResumeLength = 8000;
+  const truncatedResume = resumeText.length > maxResumeLength 
+    ? resumeText.substring(0, maxResumeLength) + '\n\n[Resume truncated for analysis...]'
+    : resumeText;
 
-JOB REQUIREMENTS:
-Title: ${jobRequirements.title}
-Description: ${jobRequirements.description}
-Required Skills: ${jobRequirements.required_skills.join(', ')}
-Optional Skills: ${jobRequirements.optional_skills.join(', ')}
-Experience Range: ${jobRequirements.experience_min}-${jobRequirements.experience_max} years
+  console.log(`Analyzing resume: ${truncatedResume.length} characters (original: ${resumeText.length})`);
+
+  const prompt = `Analyze this resume for the job: ${jobRequirements.title}
+
+REQUIRED SKILLS: ${jobRequirements.required_skills.join(', ')}
+OPTIONAL SKILLS: ${jobRequirements.optional_skills.join(', ')}
+EXPERIENCE: ${jobRequirements.experience_min}-${jobRequirements.experience_max} years
 
 RESUME:
-${resumeText}
+${truncatedResume}
 
-Provide your analysis in the following JSON format:
+Return ONLY valid JSON with this exact structure:
 {
   "parsed_data": {
-    "name": "candidate name",
-    "email": "email address",
-    "phone": "phone number if available",
-    "skills": ["skill1", "skill2", ...],
-    "experience_years": number,
-    "education": ["degree1", "degree2", ...],
-    "roles": ["role1 at company1", "role2 at company2", ...],
-    "projects": ["project1", "project2", ...],
-    "summary": "brief professional summary"
+    "name": "Full Name",
+    "email": "email@example.com",
+    "phone": "phone or empty string",
+    "skills": ["skill1", "skill2"],
+    "experience_years": 5,
+    "education": ["degree1"],
+    "roles": ["Job Title at Company"],
+    "projects": ["project1"],
+    "summary": "Brief summary"
   },
-  "match_score": number (0-100),
-  "skill_match_score": number (0-100),
-  "experience_match_score": number (0-100),
-  "explanation": "detailed explanation of the match",
-  "strengths": ["strength1", "strength2", ...],
-  "gaps": ["gap1", "gap2", ...],
-  "recommendation": "Shortlist" | "Review" | "Reject"
+  "match_score": 85,
+  "skill_match_score": 90,
+  "experience_match_score": 80,
+  "explanation": "Brief explanation of match",
+  "strengths": ["strength1", "strength2"],
+  "gaps": ["gap1"],
+  "recommendation": "Shortlist"
 }
 
-Be thorough and objective in your analysis.`;
+Use "Shortlist" (80+), "Review" (50-79), or "Reject" (<50) for recommendation.`;
 
   try {
     const completion = await groq.chat.completions.create({
       messages: [
         {
           role: 'system',
-          content: 'You are an expert HR analyst. Always respond with valid JSON only, no markdown or extra text.',
+          content: 'You are an expert HR analyst. Respond with valid JSON only.',
         },
         {
           role: 'user',
@@ -92,8 +97,8 @@ Be thorough and objective in your analysis.`;
         },
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.3,
-      max_tokens: 2000,
+      temperature: 0.2,
+      max_tokens: 3000, // Increased from 2000
       response_format: { type: 'json_object' },
     });
 
