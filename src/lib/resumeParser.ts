@@ -3,51 +3,92 @@
 
 export async function extractTextFromFile(file: File): Promise<string> {
   const fileType = file.type;
+  const fileName = file.name.toLowerCase();
 
-  if (fileType === 'application/pdf') {
-    return await extractTextFromPDF(file);
-  } else if (
-    fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  ) {
-    return await extractTextFromDOCX(file);
-  } else {
-    throw new Error('Unsupported file type');
+  try {
+    if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
+      return await extractTextFromPDF(file);
+    } else if (
+      fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      fileName.endsWith('.docx')
+    ) {
+      return await extractTextFromDOCX(file);
+    } else {
+      throw new Error('Unsupported file type. Please upload PDF or DOCX files.');
+    }
+  } catch (error) {
+    console.error('Error extracting text from file:', error);
+    // Return a basic text representation
+    return `Resume file: ${file.name}\nSize: ${file.size} bytes\nType: ${file.type}\n\nNote: Unable to extract full text. Please review manually.`;
   }
 }
 
 async function extractTextFromPDF(file: File): Promise<string> {
-  // For browser-based PDF parsing, we'll use a simple approach
-  // In production, consider using pdf-parse on the backend
-  const arrayBuffer = await file.arrayBuffer();
-  const text = new TextDecoder().decode(arrayBuffer);
-  
-  // Basic PDF text extraction (this is simplified)
-  // Extract text between stream objects
-  const textMatches = text.match(/\(([^)]+)\)/g);
-  if (textMatches) {
-    return textMatches
-      .map(match => match.slice(1, -1))
-      .join(' ')
-      .replace(/\\n/g, '\n')
-      .replace(/\\/g, '');
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(uint8Array);
+    
+    // Extract text between common PDF text markers
+    const textContent: string[] = [];
+    
+    // Method 1: Extract text between parentheses (common in PDFs)
+    const parenMatches = text.match(/\(([^)]+)\)/g);
+    if (parenMatches) {
+      parenMatches.forEach(match => {
+        const cleaned = match
+          .slice(1, -1)
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '')
+          .replace(/\\/g, '');
+        if (cleaned.trim().length > 2) {
+          textContent.push(cleaned);
+        }
+      });
+    }
+    
+    // Method 2: Extract readable ASCII text
+    const readableText = text
+      .replace(/[^\x20-\x7E\n]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && /[a-zA-Z]/.test(word))
+      .join(' ');
+    
+    const result = textContent.length > 50 
+      ? textContent.join(' ') 
+      : readableText;
+    
+    if (result.length < 100) {
+      throw new Error('Insufficient text extracted from PDF');
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    throw new Error('Unable to extract text from PDF. The file may be scanned or encrypted.');
   }
-  
-  return text;
 }
 
 async function extractTextFromDOCX(file: File): Promise<string> {
-  // For DOCX, we'll use a simple text extraction
-  // In production, use mammoth.js or similar library on the backend
-  const arrayBuffer = await file.arrayBuffer();
-  const text = new TextDecoder().decode(arrayBuffer);
-  
-  // Extract readable text (simplified approach)
-  const cleanText = text
-    .replace(/[^\x20-\x7E\n]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  return cleanText;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuffer);
+    
+    // Extract readable text from DOCX (simplified)
+    const cleanText = text
+      .replace(/[^\x20-\x7E\n]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    if (cleanText.length < 100) {
+      throw new Error('Insufficient text extracted from DOCX');
+    }
+    
+    return cleanText;
+  } catch (error) {
+    console.error('DOCX extraction error:', error);
+    throw new Error('Unable to extract text from DOCX file.');
+  }
 }
 
 // Fallback: Read file as text

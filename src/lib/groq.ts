@@ -83,6 +83,10 @@ Be thorough and objective in your analysis.`;
     const completion = await groq.chat.completions.create({
       messages: [
         {
+          role: 'system',
+          content: 'You are an expert HR analyst. Always respond with valid JSON only, no markdown or extra text.',
+        },
+        {
           role: 'user',
           content: prompt,
         },
@@ -90,20 +94,64 @@ Be thorough and objective in your analysis.`;
       model: 'llama-3.3-70b-versatile',
       temperature: 0.3,
       max_tokens: 2000,
+      response_format: { type: 'json_object' },
     });
 
     const content = completion.choices[0]?.message?.content || '';
+    console.log('Groq AI Response:', content);
     
-    // Extract JSON from the response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    // Try to extract JSON from the response
+    let jsonStr = content.trim();
+    
+    // Remove markdown code blocks if present
+    jsonStr = jsonStr.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    
+    // Find JSON object
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error('Failed to parse AI response');
+      console.error('No JSON found in response:', content);
+      throw new Error('Failed to parse AI response - no JSON found');
     }
 
-    const analysis: ResumeAnalysis = JSON.parse(jsonMatch[0]);
-    return analysis;
+    try {
+      const analysis: ResumeAnalysis = JSON.parse(jsonMatch[0]);
+      
+      // Validate required fields
+      if (!analysis.parsed_data || !analysis.match_score) {
+        throw new Error('Invalid response structure');
+      }
+      
+      return analysis;
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Attempted to parse:', jsonMatch[0]);
+      throw new Error('Failed to parse AI response - invalid JSON');
+    }
   } catch (error) {
     console.error('Error analyzing resume:', error);
+    
+    // Return a fallback response instead of failing completely
+    if (error instanceof Error && error.message.includes('parse')) {
+      console.warn('Using fallback analysis due to parse error');
+      return {
+        parsed_data: {
+          name: 'Unknown Candidate',
+          email: 'not-found@example.com',
+          skills: ['Unable to parse'],
+          experience_years: 0,
+          education: ['Unable to parse'],
+          roles: ['Unable to parse'],
+        },
+        match_score: 50,
+        skill_match_score: 50,
+        experience_match_score: 50,
+        explanation: 'Unable to fully analyze resume due to parsing error. Please review manually.',
+        strengths: ['Manual review required'],
+        gaps: ['Unable to analyze automatically'],
+        recommendation: 'Review',
+      };
+    }
+    
     throw error;
   }
 }

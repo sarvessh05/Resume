@@ -131,7 +131,10 @@ export default function JobDetail() {
           .from('resumes')
           .upload(fileName, file);
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          throw new Error(`Upload failed: ${uploadError.message}`);
+        }
 
         // Get public URL
         const { data: { publicUrl } } = supabase.storage
@@ -139,17 +142,31 @@ export default function JobDetail() {
           .getPublicUrl(fileName);
 
         // Extract text from resume
-        const resumeText = await extractTextFromFile(file);
+        let resumeText: string;
+        try {
+          resumeText = await extractTextFromFile(file);
+          console.log(`Extracted ${resumeText.length} characters from ${file.name}`);
+        } catch (extractError) {
+          console.error('Text extraction error:', extractError);
+          throw new Error(`Failed to read resume: ${extractError instanceof Error ? extractError.message : 'Unknown error'}`);
+        }
 
         // Analyze with Groq AI
-        const analysis = await analyzeResume(resumeText, {
-          title: job.title,
-          description: job.description,
-          required_skills: job.required_skills,
-          optional_skills: job.optional_skills,
-          experience_min: job.experience_min,
-          experience_max: job.experience_max,
-        });
+        let analysis;
+        try {
+          analysis = await analyzeResume(resumeText, {
+            title: job.title,
+            description: job.description,
+            required_skills: job.required_skills,
+            optional_skills: job.optional_skills,
+            experience_min: job.experience_min,
+            experience_max: job.experience_max,
+          });
+          console.log(`Analysis complete for ${file.name}:`, analysis);
+        } catch (aiError) {
+          console.error('AI analysis error:', aiError);
+          throw new Error(`AI analysis failed: ${aiError instanceof Error ? aiError.message : 'Unknown error'}`);
+        }
 
         // Save candidate to database
         const { error: insertError } = await supabase.from('candidates').insert({
@@ -167,11 +184,18 @@ export default function JobDetail() {
           processed_at: new Date().toISOString(),
         });
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          console.error('Database insert error:', insertError);
+          throw new Error(`Database error: ${insertError.message}`);
+        }
 
         successCount++;
       } catch (error) {
         console.error(`Error processing ${file.name}:`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        toast.error(`Failed to process ${file.name}`, {
+          description: errorMessage,
+        });
         failCount++;
       }
 
