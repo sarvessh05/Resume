@@ -1,11 +1,23 @@
+/**
+ * Resume Parser Module
+ * Extracts text content from PDF and DOCX files using PDF.js
+ */
+
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure the worker
+// Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url
 ).toString();
 
+/**
+ * Extracts text from uploaded resume files
+ * Supports PDF and DOCX formats
+ * 
+ * @param file - The uploaded file
+ * @returns Promise<string> - Extracted text content
+ */
 export async function extractTextFromFile(file: File): Promise<string> {
   const fileType = file.type;
   const fileName = file.name.toLowerCase();
@@ -27,43 +39,44 @@ export async function extractTextFromFile(file: File): Promise<string> {
   }
 }
 
+/**
+ * Extracts text from PDF files using PDF.js
+ * Processes all pages and combines text content
+ * 
+ * @param file - PDF file
+ * @returns Promise<string> - Extracted text
+ */
 async function extractTextFromPDF(file: File): Promise<string> {
   try {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     
-    console.log(`PDF loaded: ${pdf.numPages} pages`);
-    
     let fullText = '';
     
+    // Process each page
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
       
       // Extract text items and join them
       const pageText = textContent.items
-        .map((item: any) => {
-          // Handle both string items and items with 'str' property
-          return item.str || '';
-        })
+        .map((item: any) => item.str || '')
         .join(' ');
       
       fullText += pageText + '\n';
     }
     
-    // Clean up the extracted text
+    // Clean up extracted text
     fullText = fullText
-      .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
-      .replace(/\n+/g, '\n')  // Replace multiple newlines with single newline
+      .replace(/\s+/g, ' ')
+      .replace(/\n+/g, '\n')
       .trim();
-    
-    console.log(`PDF extraction successful: ${fullText.length} characters`);
     
     if (fullText.length < 50) {
       throw new Error('Insufficient text extracted from PDF. The file may be scanned or image-based.');
     }
     
-    // Limit to reasonable size (first 20000 chars should be enough for a resume)
+    // Limit to reasonable size for AI processing
     if (fullText.length > 20000) {
       fullText = fullText.substring(0, 20000) + '\n\n[Content truncated for processing...]';
     }
@@ -75,6 +88,14 @@ async function extractTextFromPDF(file: File): Promise<string> {
   }
 }
 
+/**
+ * Extracts text from DOCX files
+ * Note: This is a simplified extraction method
+ * For production, consider using a dedicated DOCX parser library
+ * 
+ * @param file - DOCX file
+ * @returns Promise<string> - Extracted text
+ */
 async function extractTextFromDOCX(file: File): Promise<string> {
   try {
     const arrayBuffer = await file.arrayBuffer();
@@ -97,7 +118,13 @@ async function extractTextFromDOCX(file: File): Promise<string> {
   }
 }
 
-// Fallback: Read file as text
+/**
+ * Fallback: Read file as plain text
+ * Used when other extraction methods fail
+ * 
+ * @param file - Any text file
+ * @returns Promise<string> - File content as text
+ */
 export async function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

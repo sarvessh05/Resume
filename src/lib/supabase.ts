@@ -1,3 +1,8 @@
+/**
+ * Supabase Client Configuration
+ * Handles database and storage connections
+ */
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -7,9 +12,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
+// Initialize Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Database types
+/**
+ * Database type definitions
+ * Provides type safety for Supabase queries
+ */
 export interface Database {
   public: {
     Tables: {

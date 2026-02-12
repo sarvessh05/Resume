@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import type { ResumeAnalysis } from './groq';
 
 const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
@@ -9,9 +9,12 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
-// Strict schema for structured data extraction
+/**
+ * Structured schema for AI response validation
+ * Ensures consistent data format from Gemini API
+ */
 const schema = {
-  description: "Resume analysis result",
+  description: 'Resume analysis result',
   type: SchemaType.OBJECT as const,
   properties: {
     parsed_data: {
@@ -27,7 +30,7 @@ const schema = {
         projects: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
         summary: { type: SchemaType.STRING as const },
       },
-      required: ["name", "email", "skills", "experience_years"],
+      required: ['name', 'email', 'skills', 'experience_years'],
     },
     match_score: { type: SchemaType.NUMBER as const },
     skill_match_score: { type: SchemaType.NUMBER as const },
@@ -37,22 +40,16 @@ const schema = {
     gaps: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
     recommendation: { type: SchemaType.STRING as const },
   },
-  required: ["parsed_data", "match_score", "recommendation"],
+  required: ['parsed_data', 'match_score', 'recommendation'],
 };
 
 /**
- * Debug function to check which models are available for your API Key
+ * Analyzes a resume against job requirements using Google Gemini AI
+ * 
+ * @param resumeText - Extracted text content from the resume
+ * @param jobRequirements - Job details including title, skills, and experience requirements
+ * @returns Promise<ResumeAnalysis> - Structured analysis with scores and recommendations
  */
-async function logAvailableModels() {
-  try {
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    const data = await resp.json();
-    console.log("API Key Model Permissions:", data.models?.map((m: any) => m.name));
-  } catch (e) {
-    console.error("Could not list models", e);
-  }
-}
-
 export async function analyzeResumeWithGemini(
   resumeText: string,
   jobRequirements: {
@@ -64,29 +61,17 @@ export async function analyzeResumeWithGemini(
     experience_max: number;
   }
 ): Promise<ResumeAnalysis> {
-  await logAvailableModels();
-
-  console.log('=== JOB REQUIREMENTS ===');
-  console.log('Title:', jobRequirements.title);
-  console.log('Required Skills:', jobRequirements.required_skills);
-  console.log('Optional Skills:', jobRequirements.optional_skills);
-  console.log('Experience Range:', jobRequirements.experience_min, '-', jobRequirements.experience_max, 'years');
-  console.log('Resume Preview (first 500 chars):', resumeText.substring(0, 500));
-  console.log('========================');
-
-  // List of models to try in order of preference
-  const modelNames = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-001"];
+  // Try multiple Gemini models in order of preference
+  const modelNames = ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-1.5-flash'];
   let lastError: any = null;
 
   for (const modelName of modelNames) {
     try {
-      console.log(`Attempting analysis with: ${modelName}`);
-
       const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: modelName.includes("1.5") ? schema : undefined, // Schema only for 1.5+
+          responseMimeType: 'application/json',
+          responseSchema: modelName.includes('1.5') ? schema : undefined,
           temperature: 0.1,
         },
       });
@@ -132,38 +117,23 @@ Return a JSON object matching this exact structure:
 }`;
 
       const result = await model.generateContent(prompt);
-      const response = await result.response;
+      const response = result.response;
       const text = response.text();
       
-      // Handle potential markdown wrapping in older models
-      const cleanJson = text.replace(/```json|```/gi, "").trim();
+      // Clean and parse JSON response
+      const cleanJson = text.replace(/```json|```/gi, '').trim();
       const analysis: ResumeAnalysis = JSON.parse(cleanJson);
 
-      console.log("Resume Text Preview:", resumeText.slice(0, 500));
-      console.log(`Success using ${modelName}`);
-      console.log('=== GEMINI ANALYSIS RESULTS ===');
-      console.log('Candidate Name:', analysis.parsed_data.name);
-      console.log('Candidate Skills:', analysis.parsed_data.skills);
-      console.log('Match Score:', analysis.match_score);
-      console.log('Skill Match Score:', analysis.skill_match_score);
-      console.log('Experience Match Score:', analysis.experience_match_score);
-      console.log('Recommendation:', analysis.recommendation);
-      console.log('Explanation:', analysis.explanation);
-      console.log('Strengths:', analysis.strengths);
-      console.log('Gaps:', analysis.gaps);
-      console.log('================================');
-      
       return analysis;
 
     } catch (error: any) {
-      console.warn(`${modelName} failed:`, error.message);
       lastError = error;
-      // If it's a 404, the loop continues to the next model
-      if (!error.message.includes("404")) break; 
+      // Continue to next model if 404, otherwise break
+      if (!error.message.includes('404')) break;
     }
   }
 
-  // Final fallback if all models fail
+  // Fallback response if all models fail
   console.error('All Gemini models failed:', lastError);
   return {
     parsed_data: {
