@@ -62,7 +62,7 @@ export async function analyzeResumeWithGemini(
   }
 ): Promise<ResumeAnalysis> {
   // Try multiple Gemini models in order of preference
-  const modelNames = ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+  const modelNames = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-001'];
   let lastError: any = null;
 
   for (const modelName of modelNames) {
