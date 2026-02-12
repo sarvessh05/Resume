@@ -97,6 +97,52 @@ export default function CandidateDetail() {
     }
   };
 
+  const handleDownloadResume = async () => {
+    if (!candidate?.resume_url) {
+      toast.error('Resume file not available');
+      return;
+    }
+
+    try {
+      // Extract the file path from the full URL
+      const urlParts = candidate.resume_url.split('/');
+      const filePath = urlParts.slice(urlParts.indexOf('resumes')).join('/');
+
+      // Download from Supabase storage
+      const { data, error } = await supabase.storage
+        .from('resumes')
+        .download(filePath.replace('resumes/', ''));
+
+      if (error) throw error;
+
+      // Create a download link
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${candidate.parsed_data.name}_resume.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success('Resume downloaded successfully');
+    } catch (error) {
+      console.error('Error downloading resume:', error);
+      toast.error('Failed to download resume');
+    }
+  };
+
+  const handleContact = () => {
+    if (!candidate?.parsed_data.email) {
+      toast.error('Email not available');
+      return;
+    }
+
+    const subject = encodeURIComponent(`Regarding your application for ${job?.title || 'position'}`);
+    const mailtoLink = `mailto:${candidate.parsed_data.email}?subject=${subject}`;
+    window.location.href = mailtoLink;
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -207,11 +253,11 @@ export default function CandidateDetail() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Button variant="outline" className="gap-2">
+              <Button variant="outline" className="gap-2" onClick={handleDownloadResume}>
                 <Download className="h-4 w-4" />
                 Download Resume
               </Button>
-              <Button variant="outline" className="gap-2">
+              <Button variant="outline" className="gap-2" onClick={handleContact}>
                 <Mail className="h-4 w-4" />
                 Contact
               </Button>
