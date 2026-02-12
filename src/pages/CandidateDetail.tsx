@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -13,20 +14,98 @@ import {
   AlertCircle,
   FileText,
   Download,
+  Loader2,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { ScoreBadge } from '@/components/ui/score-badge';
 import { SkillBadge } from '@/components/ui/skill-badge';
 import { Progress } from '@/components/ui/progress';
-import { mockJobs, mockCandidates } from '@/lib/mockData';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
+
+interface Candidate {
+  id: string;
+  job_id: string;
+  parsed_data: {
+    name: string;
+    email: string;
+    phone: string;
+    skills: string[];
+    experience_years: number;
+    education: string[];
+    roles: string[];
+    projects: string[];
+    summary: string;
+  };
+  match_score: number;
+  skill_match_score: number;
+  experience_match_score: number;
+  explanation: string;
+  strengths: string[];
+  gaps: string[];
+  recommendation: string;
+  resume_url: string;
+}
+
+interface Job {
+  id: string;
+  title: string;
+  required_skills: string[];
+  optional_skills: string[];
+}
 
 export default function CandidateDetail() {
   const { id, candidateId } = useParams<{ id: string; candidateId: string }>();
   const navigate = useNavigate();
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
+  const [job, setJob] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const job = mockJobs.find((j) => j.id === id);
-  const candidate = mockCandidates.find((c) => c.id === candidateId);
+  useEffect(() => {
+    if (id && candidateId) {
+      fetchCandidateDetails();
+    }
+  }, [id, candidateId]);
+
+  const fetchCandidateDetails = async () => {
+    try {
+      // Fetch candidate
+      const { data: candidateData, error: candidateError } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
+
+      if (candidateError) throw candidateError;
+      setCandidate(candidateData);
+
+      // Fetch job
+      const { data: jobData, error: jobError } = await supabase
+        .from('jobs')
+        .select('id, title, required_skills, optional_skills')
+        .eq('id', id)
+        .single();
+
+      if (jobError) throw jobError;
+      setJob(jobData);
+    } catch (error) {
+      console.error('Error fetching candidate:', error);
+      toast.error('Failed to load candidate details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!job || !candidate) {
     return (

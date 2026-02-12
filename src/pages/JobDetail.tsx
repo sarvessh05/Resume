@@ -10,12 +10,24 @@ import {
   FileText,
   CheckCircle,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { SkillBadge } from '@/components/ui/skill-badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { analyzeResume } from '@/lib/groq';
@@ -74,6 +86,34 @@ export default function JobDetail() {
       toast.error('Failed to load job details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteJob = async () => {
+    if (!id) return;
+
+    try {
+      // First delete all candidates for this job
+      const { error: candidatesError } = await supabase
+        .from('candidates')
+        .delete()
+        .eq('job_id', id);
+
+      if (candidatesError) throw candidatesError;
+
+      // Then delete the job
+      const { error: jobError } = await supabase
+        .from('jobs')
+        .delete()
+        .eq('id', id);
+
+      if (jobError) throw jobError;
+
+      toast.success('Job deleted successfully');
+      navigate('/jobs');
+    } catch (error) {
+      console.error('Error deleting job:', error);
+      toast.error('Failed to delete job');
     }
   };
 
@@ -296,12 +336,36 @@ export default function JobDetail() {
               </div>
             </div>
 
-            <Link to={`/jobs/${id}/candidates`}>
-              <Button className="gap-2 gradient-primary text-primary-foreground hover:opacity-90">
-                <Users className="h-4 w-4" />
-                View Candidates ({candidatesCount})
-              </Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link to={`/jobs/${id}/candidates`}>
+                <Button className="gap-2 gradient-primary text-primary-foreground hover:opacity-90">
+                  <Users className="h-4 w-4" />
+                  View Candidates ({candidatesCount})
+                </Button>
+              </Link>
+              
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="icon">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Job</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to delete this job? This will also delete all {candidatesCount} candidate(s) associated with it. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteJob} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         </motion.div>
 
