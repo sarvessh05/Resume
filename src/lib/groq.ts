@@ -81,10 +81,13 @@ async function analyzeResumeWithGroq(
   // Very concise prompt to save tokens
   const prompt = `Job: ${jobRequirements.title}
 Required: ${jobRequirements.required_skills.slice(0, 5).join(', ')}
+Optional: ${jobRequirements.optional_skills?.slice(0, 3).join(', ') || 'None'}
 Experience: ${jobRequirements.experience_min}-${jobRequirements.experience_max}y
 
 Resume:
 ${truncatedResume}
+
+SCORING: If candidate has all required skills, skill_match_score 80-100. Match skills flexibly. Shortlist if match_score >= 70.
 
 Return JSON:
 {"parsed_data":{"name":"","email":"","phone":"","skills":[],"experience_years":0,"education":[],"roles":[],"projects":[],"summary":""},"match_score":0,"skill_match_score":0,"experience_match_score":0,"explanation":"","strengths":[],"gaps":[],"recommendation":"Review"}`;
@@ -94,7 +97,7 @@ Return JSON:
       messages: [
         {
           role: 'system',
-          content: 'You are an HR analyst. Return valid JSON only. Be concise.',
+          content: 'You are an HR analyst. Return valid JSON only. Be fair in scoring - if candidate has required skills, give high scores.',
         },
         {
           role: 'user',

@@ -12,30 +12,30 @@ const genAI = new GoogleGenerativeAI(apiKey);
 // Strict schema for structured data extraction
 const schema = {
   description: "Resume analysis result",
-  type: SchemaType.OBJECT,
+  type: SchemaType.OBJECT as const,
   properties: {
     parsed_data: {
-      type: SchemaType.OBJECT,
+      type: SchemaType.OBJECT as const,
       properties: {
-        name: { type: SchemaType.STRING },
-        email: { type: SchemaType.STRING },
-        phone: { type: SchemaType.STRING },
-        skills: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-        experience_years: { type: SchemaType.NUMBER },
-        education: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-        roles: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-        projects: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-        summary: { type: SchemaType.STRING },
+        name: { type: SchemaType.STRING as const },
+        email: { type: SchemaType.STRING as const },
+        phone: { type: SchemaType.STRING as const },
+        skills: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
+        experience_years: { type: SchemaType.NUMBER as const },
+        education: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
+        roles: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
+        projects: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
+        summary: { type: SchemaType.STRING as const },
       },
       required: ["name", "email", "skills", "experience_years"],
     },
-    match_score: { type: SchemaType.NUMBER },
-    skill_match_score: { type: SchemaType.NUMBER },
-    experience_match_score: { type: SchemaType.NUMBER },
-    explanation: { type: SchemaType.STRING },
-    strengths: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-    gaps: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-    recommendation: { type: SchemaType.STRING },
+    match_score: { type: SchemaType.NUMBER as const },
+    skill_match_score: { type: SchemaType.NUMBER as const },
+    experience_match_score: { type: SchemaType.NUMBER as const },
+    explanation: { type: SchemaType.STRING as const },
+    strengths: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
+    gaps: { type: SchemaType.ARRAY as const, items: { type: SchemaType.STRING as const } },
+    recommendation: { type: SchemaType.STRING as const },
   },
   required: ["parsed_data", "match_score", "recommendation"],
 };
@@ -67,7 +67,7 @@ export async function analyzeResumeWithGemini(
   await logAvailableModels();
 
   // List of models to try in order of preference
-  const modelNames = ["gemini-1.5-pro-latest", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-1.5-flash"];
+  const modelNames = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-001"];
   let lastError: any = null;
 
   for (const modelName of modelNames) {
@@ -83,26 +83,45 @@ export async function analyzeResumeWithGemini(
         },
       });
 
-      const prompt = `Analyze this resume against the job requirements.
-      
-      JOB: ${jobRequirements.title}
-      REQUIRED SKILLS: ${jobRequirements.required_skills.join(', ')}
-      EXPERIENCE NEEDED: ${jobRequirements.experience_min}-${jobRequirements.experience_max} years
+      const prompt = `You are an expert HR analyst. Analyze this resume against the job requirements and be FAIR in your assessment.
 
-      RESUME:
-      ${resumeText}
+JOB TITLE: ${jobRequirements.title}
+REQUIRED SKILLS: ${jobRequirements.required_skills.join(', ')}
+OPTIONAL SKILLS: ${jobRequirements.optional_skills.join(', ')}
+EXPERIENCE NEEDED: ${jobRequirements.experience_min}-${jobRequirements.experience_max} years
 
-      Return a JSON object matching this structure:
-      {
-        "parsed_data": { "name": "", "email": "", "phone": "", "skills": [], "experience_years": 0, "education": [], "roles": [], "projects": [], "summary": "" },
-        "match_score": 0-100,
-        "skill_match_score": 0-100,
-        "experience_match_score": 0-100,
-        "explanation": "",
-        "strengths": [],
-        "gaps": [],
-        "recommendation": "Shortlist" | "Review" | "Reject"
-      }`;
+RESUME:
+${resumeText}
+
+IMPORTANT SCORING GUIDELINES:
+- If the candidate has ALL required skills, skill_match_score should be 80-100
+- If the candidate has MOST required skills (2 out of 3), skill_match_score should be 60-79
+- Match skills flexibly (e.g., "Django" matches "Django", "Python/Django", "Django Framework")
+- Consider related experience even if exact years don't match
+- Overall match_score should reflect: 60% skills + 40% experience
+- Recommendation: "Shortlist" if match_score >= 70, "Review" if 50-69, "Reject" if < 50
+
+Return a JSON object matching this exact structure:
+{
+  "parsed_data": {
+    "name": "Full name from resume",
+    "email": "email@example.com",
+    "phone": "phone number or empty string",
+    "skills": ["list all technical skills found"],
+    "experience_years": 0,
+    "education": ["degrees and universities"],
+    "roles": ["job titles and companies"],
+    "projects": ["notable projects"],
+    "summary": "brief professional summary"
+  },
+  "match_score": 0-100,
+  "skill_match_score": 0-100,
+  "experience_match_score": 0-100,
+  "explanation": "Detailed explanation of the match assessment",
+  "strengths": ["key strengths that match the job"],
+  "gaps": ["missing skills or experience"],
+  "recommendation": "Shortlist" or "Review" or "Reject"
+}`;
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
