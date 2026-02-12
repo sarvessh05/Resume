@@ -1,5 +1,10 @@
-// Simple text extraction from PDF and DOCX files
-// Note: For production, consider using a backend service for better parsing
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure the worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
 
 export async function extractTextFromFile(file: File): Promise<string> {
   const fileType = file.type;
@@ -18,67 +23,55 @@ export async function extractTextFromFile(file: File): Promise<string> {
     }
   } catch (error) {
     console.error('Error extracting text from file:', error);
-    // Return a basic text representation
-    return `Resume file: ${file.name}\nSize: ${file.size} bytes\nType: ${file.type}\n\nNote: Unable to extract full text. Please review manually.`;
+    throw error;
   }
 }
 
 async function extractTextFromPDF(file: File): Promise<string> {
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(uint8Array);
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     
-    // Extract text between common PDF text markers
-    const textContent: string[] = [];
+    console.log(`PDF loaded: ${pdf.numPages} pages`);
     
-    // Method 1: Extract text between parentheses (common in PDFs)
-    const parenMatches = text.match(/\(([^)]+)\)/g);
-    if (parenMatches) {
-      parenMatches.forEach(match => {
-        const cleaned = match
-          .slice(1, -1)
-          .replace(/\\n/g, '\n')
-          .replace(/\\r/g, '')
-          .replace(/\\/g, '');
-        if (cleaned.trim().length > 2) {
-          textContent.push(cleaned);
-        }
-      });
+    let fullText = '';
+    
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      
+      // Extract text items and join them
+      const pageText = textContent.items
+        .map((item: any) => {
+          // Handle both string items and items with 'str' property
+          return item.str || '';
+        })
+        .join(' ');
+      
+      fullText += pageText + '\n';
     }
     
-    // Method 2: Extract readable ASCII text
-    const readableText = text
-      .replace(/[^\x20-\x7E\n]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 2 && /[a-zA-Z]/.test(word))
-      .join(' ');
-    
-    let result = textContent.length > 50 
-      ? textContent.join(' ') 
-      : readableText;
-    
-    // Clean up the result
-    result = result
-      .replace(/\s+/g, ' ')
-      .replace(/\n+/g, '\n')
+    // Clean up the extracted text
+    fullText = fullText
+      .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+      .replace(/\n+/g, '\n')  // Replace multiple newlines with single newline
       .trim();
     
-    if (result.length < 100) {
-      throw new Error('Insufficient text extracted from PDF');
+    console.log(`PDF extraction successful: ${fullText.length} characters`);
+    
+    if (fullText.length < 50) {
+      throw new Error('Insufficient text extracted from PDF. The file may be scanned or image-based.');
     }
     
-    console.log(`PDF extraction successful: ${result.length} characters`);
-    
-    // Limit to reasonable size (first 15000 chars should be enough for a resume)
-    if (result.length > 15000) {
-      result = result.substring(0, 15000) + '\n\n[Content truncated...]';
+    // Limit to reasonable size (first 20000 chars should be enough for a resume)
+    if (fullText.length > 20000) {
+      fullText = fullText.substring(0, 20000) + '\n\n[Content truncated for processing...]';
     }
     
-    return result;
+    return fullText;
   } catch (error) {
     console.error('PDF extraction error:', error);
-    throw new Error('Unable to extract text from PDF. The file may be scanned or encrypted.');
+    throw new Error(`Unable to extract text from PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 

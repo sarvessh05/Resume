@@ -66,6 +66,14 @@ export async function analyzeResumeWithGemini(
 ): Promise<ResumeAnalysis> {
   await logAvailableModels();
 
+  console.log('=== JOB REQUIREMENTS ===');
+  console.log('Title:', jobRequirements.title);
+  console.log('Required Skills:', jobRequirements.required_skills);
+  console.log('Optional Skills:', jobRequirements.optional_skills);
+  console.log('Experience Range:', jobRequirements.experience_min, '-', jobRequirements.experience_max, 'years');
+  console.log('Resume Preview (first 500 chars):', resumeText.substring(0, 500));
+  console.log('========================');
+
   // List of models to try in order of preference
   const modelNames = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-001"];
   let lastError: any = null;
@@ -131,7 +139,20 @@ Return a JSON object matching this exact structure:
       const cleanJson = text.replace(/```json|```/gi, "").trim();
       const analysis: ResumeAnalysis = JSON.parse(cleanJson);
 
+      console.log("Resume Text Preview:", resumeText.slice(0, 500));
       console.log(`Success using ${modelName}`);
+      console.log('=== GEMINI ANALYSIS RESULTS ===');
+      console.log('Candidate Name:', analysis.parsed_data.name);
+      console.log('Candidate Skills:', analysis.parsed_data.skills);
+      console.log('Match Score:', analysis.match_score);
+      console.log('Skill Match Score:', analysis.skill_match_score);
+      console.log('Experience Match Score:', analysis.experience_match_score);
+      console.log('Recommendation:', analysis.recommendation);
+      console.log('Explanation:', analysis.explanation);
+      console.log('Strengths:', analysis.strengths);
+      console.log('Gaps:', analysis.gaps);
+      console.log('================================');
+      
       return analysis;
 
     } catch (error: any) {

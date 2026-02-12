@@ -47,6 +47,13 @@ export async function analyzeResume(
   // Use Gemini as primary (handles long resumes better)
   console.log(`Resume length: ${resumeText.length} characters`);
   
+  console.log('=== JOB REQUIREMENTS (GROQ) ===');
+  console.log('Title:', jobRequirements.title);
+  console.log('Required Skills:', jobRequirements.required_skills);
+  console.log('Optional Skills:', jobRequirements.optional_skills);
+  console.log('Experience Range:', jobRequirements.experience_min, '-', jobRequirements.experience_max, 'years');
+  console.log('================================');
+  
   try {
     // Try Gemini first (better for long documents)
     return await analyzeResumeWithGemini(resumeText, jobRequirements);
@@ -133,6 +140,18 @@ Return JSON:
       if (!analysis.parsed_data || !analysis.match_score) {
         throw new Error('Invalid response structure');
       }
+      
+      console.log('=== GROQ ANALYSIS RESULTS ===');
+      console.log('Candidate Name:', analysis.parsed_data.name);
+      console.log('Candidate Skills:', analysis.parsed_data.skills);
+      console.log('Match Score:', analysis.match_score);
+      console.log('Skill Match Score:', analysis.skill_match_score);
+      console.log('Experience Match Score:', analysis.experience_match_score);
+      console.log('Recommendation:', analysis.recommendation);
+      console.log('Explanation:', analysis.explanation);
+      console.log('Strengths:', analysis.strengths);
+      console.log('Gaps:', analysis.gaps);
+      console.log('=============================');
       
       return analysis;
     } catch (parseError) {
